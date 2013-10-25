@@ -319,6 +319,28 @@ inline uint64_t ExternalSorter::getTotalEntries() const
 //
 // BulkLoader
 //
+void BulkLoader::bulkLoadUsingRplus(
+	SpatialIndex::RTree::RTree* pTree,
+	IDataStream& stream,
+	uint32_t bindex,
+	uint32_t bleaf,
+	uint32_t pageSize,
+	uint32_t numberOfPages
+) {
+	if (! stream.hasNext())
+		throw Tools::IllegalArgumentException(
+			"RTree::BulkLoader::bulkLoadUsingRplus: Empty data stream given."
+		);
+	NodePtr n = pTree->readNode(pTree->m_rootID);
+	pTree->deleteNode(n.get());
+
+	#ifndef NDEBUG
+	std::cerr << "RTree::BulkLoader: Sorting data." << std::endl;
+	#endif
+
+}
+
+
 void BulkLoader::bulkLoadUsingSTR(
 	SpatialIndex::RTree::RTree* pTree,
 	IDataStream& stream,

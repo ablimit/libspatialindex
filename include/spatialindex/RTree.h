@@ -40,7 +40,8 @@ namespace SpatialIndex
 
 		SIDX_DLL enum BulkLoadMethod
 		{
-			BLM_STR = 0x0
+			BLM_STR = 0x0,
+			BLM_RP = 0x1
 		};
 
 		SIDX_DLL enum PersistenObjectIdentifier

@@ -113,6 +113,14 @@ namespace SpatialIndex
 				uint32_t pageSize, // The number of node entries per page.
 				uint32_t numberOfPages // The total number of pages to use.
 			);
+			void bulkLoadUsingRplus(
+				RTree* pTree,
+				IDataStream& stream,
+				uint32_t bindex,
+				uint32_t bleaf,
+				uint32_t pageSize, // The number of node entries per page.
+				uint32_t numberOfPages // The total number of pages to use.
+			);
 
 		protected:
 			void createLevel(
