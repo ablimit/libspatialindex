@@ -138,7 +138,8 @@ void ExternalSorter::insert(Record* r)
 
 	// this will create the initial, sorted buckets before the
 	// external merge sort.
-	if (m_buffer.size() >= m_u32PageSize * m_u32BufferPages)
+	//if (m_buffer.size() >= static_cast<uint64_t>m_u32PageSize * static_cast<uint64_t>m_u32BufferPages)
+	if (m_buffer.size() >= 100000000) // 100 Million objects 
 	{
 		std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscending());
 		Tools::TemporaryFile* tf = new Tools::TemporaryFile();
@@ -316,27 +317,137 @@ inline uint64_t ExternalSorter::getTotalEntries() const
 	return m_u64TotalEntries;
 }
 
-//
 // BulkLoader
-//
-void BulkLoader::bulkLoadUsingRplus(
+void BulkLoader::bulkLoadUsingSTRIP(
+	SpatialIndex::RTree::RTree* pTree,
+	IDataStream& stream,
+	uint32_t b,
+	uint32_t dim
+	) {
+    if (! stream.hasNext())
+	throw Tools::IllegalArgumentException(
+		"RTree::BulkLoader::bulkLoadUsingRplus: Empty data stream given."
+		);
+    NodePtr n = pTree->readNode(pTree->m_rootID);
+    pTree->deleteNode(n.get());
+
+#ifndef NDEBUG
+    std::cerr << "RTree::BulkLoader:STRIP Sorting data." << std::endl;
+#endif
+
+    Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(10000,10000));
+
+    while (stream.hasNext())
+    {
+	Data* d = reinterpret_cast<Data*>(stream.getNext());
+	if (d == 0)
+	    throw Tools::IllegalArgumentException(
+		    "bulkLoadUsingSTR: RTree bulk load expects SpatialIndex::RTree::Data entries."
+		    );
+
+	es->insert(new ExternalSorter::Record(d->m_region, d->m_id, d->m_dataLength, d->m_pData, dim));
+	d->m_pData = 0;
+	delete d;
+    }
+
+    // sort by dim 
+    es->sort();
+
+    pTree->m_stats.m_u64Data = es->getTotalEntries();
+
+    // create index levels.
+    uint32_t level = 0;
+    std::vector<ExternalSorter::Record*> node;
+    std::vector<ExternalSorter::Record*> rnode;// for creating root node 
+    ExternalSorter::Record* r;
+
+    while (true)
+    {
+	try { r = es->getNextRecord(); } catch (Tools::EndOfStreamException) { break; }
+	node.push_back(r);
+
+	if (node.size() == b)
+	{
+	    Node* n = createNode(pTree, node, level);
+	    node.clear();
+	    pTree->writeNode(n);
+	    rnode.push_back(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
+	    // to standard output for detting those boundaries 
+	    std::cout << n->m_identifier << " " << n->m_nodeMBR << std::endl;
+
+	    delete n;
+	}
+    }
+
+    if (! node.empty())
+    {
+	Node* n = createNode(pTree, node, level);
+	pTree->writeNode(n);
+	rnode.push_back(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
+	// to standard output for detting those boundaries 
+	std::cout << n->m_identifier << " " << n->m_nodeMBR << std::endl;
+	delete n;
+    }
+
+    // create final root node 
+    Node* nr = createNode(pTree, rnode, 1);
+    pTree->writeNode(nr);
+    pTree->m_rootID = nr->m_identifier;
+    delete nr;
+
+
+    pTree->m_stats.m_u32TreeHeight = 1;
+    pTree->storeHeader();
+
+}
+
+
+// BulkLoader
+void BulkLoader::bulkLoadUsingRPLUS(
 	SpatialIndex::RTree::RTree* pTree,
 	IDataStream& stream,
 	uint32_t bindex,
 	uint32_t bleaf,
 	uint32_t pageSize,
 	uint32_t numberOfPages
-) {
-	if (! stream.hasNext())
-		throw Tools::IllegalArgumentException(
-			"RTree::BulkLoader::bulkLoadUsingRplus: Empty data stream given."
+	) {
+    if (! stream.hasNext())
+	throw Tools::IllegalArgumentException(
+		"RTree::BulkLoader::bulkLoadUsingRplus: Empty data stream given."
 		);
-	NodePtr n = pTree->readNode(pTree->m_rootID);
-	pTree->deleteNode(n.get());
+    NodePtr n = pTree->readNode(pTree->m_rootID);
+    pTree->deleteNode(n.get());
 
-	#ifndef NDEBUG
-	std::cerr << "RTree::BulkLoader: Sorting data." << std::endl;
-	#endif
+#ifndef NDEBUG
+    std::cerr << "RTree::BulkLoader:R+ Sorting data." << std::endl;
+#endif
+
+    std::vector<Tools::SmartPointer<ExternalSorter::Record*> > es ;
+    uint32_t dim = 0 ; 
+    while (stream.hasNext())
+    {
+	Data* d = reinterpret_cast<Data*>(stream.getNext());
+	if (d == 0)
+	    throw Tools::IllegalArgumentException(
+		    "bulkLoadUsingSTR: RTree bulk load expects SpatialIndex::RTree::Data entries."
+		    );
+
+	es.push_back(Tools::SmartPointer<ExternalSorter::Record*> (new ExternalSorter::Record(d->m_region, d->m_id, d->m_dataLength, d->m_pData, dim)));
+	d->m_pData = 0;
+	delete d;
+    }
+
+    ExternalSorter::Record * min_rec = *(std::min_element(es.begin(), es.end(), ExternalSorter::Record::SortAscendingX()));
+    ExternalSorter::Record * max_rec = *(std::max_element(es.begin(), es.end(), ExternalSorter::Record::SortAscendingY()));
+
+    std::cerr << "MIN: " << min_rec->m_r  << std::endl;
+    std::cerr << "MAX: " << max_rec->m_r  << std::endl;
+
+
+    //pTree->m_stats.m_u64Data = es->getTotalEntries();
+
+    // create index levels.
+    //uint32_t level = 0;
 
 }
 
@@ -348,58 +459,58 @@ void BulkLoader::bulkLoadUsingSTR(
 	uint32_t bleaf,
 	uint32_t pageSize,
 	uint32_t numberOfPages
-) {
-	if (! stream.hasNext())
-		throw Tools::IllegalArgumentException(
-			"RTree::BulkLoader::bulkLoadUsingSTR: Empty data stream given."
+	) {
+    if (! stream.hasNext())
+	throw Tools::IllegalArgumentException(
+		"RTree::BulkLoader::bulkLoadUsingSTR: Empty data stream given."
 		);
 
-	NodePtr n = pTree->readNode(pTree->m_rootID);
-	pTree->deleteNode(n.get());
+    NodePtr n = pTree->readNode(pTree->m_rootID);
+    pTree->deleteNode(n.get());
 
-	#ifndef NDEBUG
-	std::cerr << "RTree::BulkLoader: Sorting data." << std::endl;
-	#endif
+#ifndef NDEBUG
+    std::cerr << "RTree::BulkLoader: Sorting data." << std::endl;
+#endif
 
-	Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
+    Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
 
-	while (stream.hasNext())
-	{
-		Data* d = reinterpret_cast<Data*>(stream.getNext());
-		if (d == 0)
-			throw Tools::IllegalArgumentException(
-				"bulkLoadUsingSTR: RTree bulk load expects SpatialIndex::RTree::Data entries."
-			);
+    while (stream.hasNext())
+    {
+	Data* d = reinterpret_cast<Data*>(stream.getNext());
+	if (d == 0)
+	    throw Tools::IllegalArgumentException(
+		    "bulkLoadUsingSTR: RTree bulk load expects SpatialIndex::RTree::Data entries."
+		    );
 
-		es->insert(new ExternalSorter::Record(d->m_region, d->m_id, d->m_dataLength, d->m_pData, 0));
-		d->m_pData = 0;
-		delete d;
-	}
+	es->insert(new ExternalSorter::Record(d->m_region, d->m_id, d->m_dataLength, d->m_pData, 0));
+	d->m_pData = 0;
+	delete d;
+    }
+    es->sort();
+
+    pTree->m_stats.m_u64Data = es->getTotalEntries();
+
+    // create index levels.
+    uint32_t level = 0;
+
+    while (true)
+    {
+#ifndef NDEBUG
+	std::cerr << "RTree::BulkLoader: Building level " << level << std::endl;
+#endif
+
+	pTree->m_stats.m_nodesInLevel.push_back(0);
+
+	Tools::SmartPointer<ExternalSorter> es2 = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
+	createLevel(pTree, es, 0, bleaf, bindex, level++, es2, pageSize, numberOfPages);
+	es = es2;
+
+	if (es->getTotalEntries() == 1) break;
 	es->sort();
+    }
 
-	pTree->m_stats.m_u64Data = es->getTotalEntries();
-
-	// create index levels.
-	uint32_t level = 0;
-
-	while (true)
-	{
-		#ifndef NDEBUG
-		std::cerr << "RTree::BulkLoader: Building level " << level << std::endl;
-		#endif
-
-		pTree->m_stats.m_nodesInLevel.push_back(0);
-
-		Tools::SmartPointer<ExternalSorter> es2 = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
-		createLevel(pTree, es, 0, bleaf, bindex, level++, es2, pageSize, numberOfPages);
-		es = es2;
-
-		if (es->getTotalEntries() == 1) break;
-		es->sort();
-	}
-
-	pTree->m_stats.m_u32TreeHeight = level;
-	pTree->storeHeader();
+    pTree->m_stats.m_u32TreeHeight = level;
+    pTree->storeHeader();
 }
 
 void BulkLoader::createLevel(
@@ -412,77 +523,77 @@ void BulkLoader::createLevel(
 	Tools::SmartPointer<ExternalSorter> es2,
 	uint32_t pageSize,
 	uint32_t numberOfPages
-) {
-	uint64_t b = (level == 0) ? bleaf : bindex;
-	uint64_t P = static_cast<uint64_t>(std::ceil(static_cast<double>(es->getTotalEntries()) / static_cast<double>(b)));
-	uint64_t S = static_cast<uint64_t>(std::ceil(std::sqrt(static_cast<double>(P))));
+	) {
+    uint64_t b = (level == 0) ? bleaf : bindex;
+    uint64_t P = static_cast<uint64_t>(std::ceil(static_cast<double>(es->getTotalEntries()) / static_cast<double>(b)));
+    uint64_t S = static_cast<uint64_t>(std::ceil(std::sqrt(static_cast<double>(P))));
 
-	if (S == 1 || dimension == pTree->m_dimension - 1 || S * b == es->getTotalEntries())
+    if (S == 1 || dimension == pTree->m_dimension - 1 || S * b == es->getTotalEntries())
+    {
+	std::vector<ExternalSorter::Record*> node;
+	ExternalSorter::Record* r;
+
+	while (true)
 	{
-		std::vector<ExternalSorter::Record*> node;
-		ExternalSorter::Record* r;
+	    try { r = es->getNextRecord(); } catch (Tools::EndOfStreamException) { break; }
+	    node.push_back(r);
 
-		while (true)
-		{
-			try { r = es->getNextRecord(); } catch (Tools::EndOfStreamException) { break; }
-			node.push_back(r);
-
-			if (node.size() == b)
-			{
-				Node* n = createNode(pTree, node, level);
-				node.clear();
-				pTree->writeNode(n);
-				es2->insert(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
-				pTree->m_rootID = n->m_identifier;
-					// special case when the root has exactly bindex entries.
-				delete n;
-			}
-		}
-
-		if (! node.empty())
-		{
-			Node* n = createNode(pTree, node, level);
-			pTree->writeNode(n);
-			es2->insert(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
-			pTree->m_rootID = n->m_identifier;
-			delete n;
-		}
+	    if (node.size() == b)
+	    {
+		Node* n = createNode(pTree, node, level);
+		node.clear();
+		pTree->writeNode(n);
+		es2->insert(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
+		pTree->m_rootID = n->m_identifier;
+		// special case when the root has exactly bindex entries.
+		delete n;
+	    }
 	}
-	else
+
+	if (! node.empty())
 	{
-		bool bMore = true;
-
-		while (bMore)
-		{
-			ExternalSorter::Record* pR;
-			Tools::SmartPointer<ExternalSorter> es3 = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
-
-			for (uint64_t i = 0; i < S * b; ++i)
-			{
-				try { pR = es->getNextRecord(); }
-				catch (Tools::EndOfStreamException) { bMore = false; break; }
-				pR->m_s = dimension + 1;
-				es3->insert(pR);
-			}
-			es3->sort();
-			createLevel(pTree, es3, dimension + 1, bleaf, bindex, level, es2, pageSize, numberOfPages);
-		}
+	    Node* n = createNode(pTree, node, level);
+	    pTree->writeNode(n);
+	    es2->insert(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
+	    pTree->m_rootID = n->m_identifier;
+	    delete n;
 	}
+    }
+    else
+    {
+	bool bMore = true;
+
+	while (bMore)
+	{
+	    ExternalSorter::Record* pR;
+	    Tools::SmartPointer<ExternalSorter> es3 = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
+
+	    for (uint64_t i = 0; i < S * b; ++i)
+	    {
+		try { pR = es->getNextRecord(); }
+		catch (Tools::EndOfStreamException) { bMore = false; break; }
+		pR->m_s = dimension + 1;
+		es3->insert(pR);
+	    }
+	    es3->sort();
+	    createLevel(pTree, es3, dimension + 1, bleaf, bindex, level, es2, pageSize, numberOfPages);
+	}
+    }
 }
 
 Node* BulkLoader::createNode(SpatialIndex::RTree::RTree* pTree, std::vector<ExternalSorter::Record*>& e, uint32_t level)
 {
-	Node* n;
+    Node* n;
 
-	if (level == 0) n = new Leaf(pTree, -1);
-	else n = new Index(pTree, -1, level);
+    if (level == 0) n = new Leaf(pTree, -1);
+    else n = new Index(pTree, -1, level);
 
-	for (size_t cChild = 0; cChild < e.size(); ++cChild)
-	{
-		n->insertEntry(e[cChild]->m_len, e[cChild]->m_pData, e[cChild]->m_r, e[cChild]->m_id);
-		e[cChild]->m_pData = 0;
-		delete e[cChild];
-	}
+    for (size_t cChild = 0; cChild < e.size(); ++cChild)
+    {
+	n->insertEntry(e[cChild]->m_len, e[cChild]->m_pData, e[cChild]->m_r, e[cChild]->m_id);
+	e[cChild]->m_pData = 0;
+	delete e[cChild];
+    }
 
-	return n;
+    return n;
 }

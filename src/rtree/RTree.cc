@@ -207,10 +207,13 @@ SpatialIndex::ISpatialIndex* SpatialIndex::RTree::createAndBulkLoadNewRTree(
 	switch (m)
 	{
 	case BLM_STR:
-		bl.bulkLoadUsingSTR(static_cast<RTree*>(tree), stream, bindex, bleaf, 10000, 100);
+		bl.bulkLoadUsingSTR(static_cast<RTree*>(tree), stream, bindex, bleaf, 10000, 10000);
 		break;
 	case BLM_RP:
-		bl.bulkLoadUsingRplus(static_cast<RTree*>(tree), stream, bindex, bleaf, 10000, 100);
+		bl.bulkLoadUsingRPLUS(static_cast<RTree*>(tree), stream, bindex, leafCapacity, 10000, 10000);
+		break;
+	case BLM_STRIP:
+		bl.bulkLoadUsingSTRIP(static_cast<RTree*>(tree), stream, leafCapacity, indexCapacity);
 		break;
 	default:
 		throw Tools::IllegalArgumentException("createAndBulkLoadNewRTree: Unknown bulk load method.");

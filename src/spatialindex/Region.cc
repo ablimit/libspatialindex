@@ -581,13 +581,13 @@ std::ostream& SpatialIndex::operator<<(std::ostream& os, const Region& r)
 {
 	uint32_t i;
 
-	os << "Low: ";
+	//os << "Low: ";
 	for (i = 0; i < r.m_dimension; ++i)
 	{
 		os << r.m_pLow[i] << " ";
 	}
 
-	os << ", High: ";
+	//os << ", High: ";
 
 	for (i = 0; i < r.m_dimension; ++i)
 	{
