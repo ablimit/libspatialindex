@@ -422,7 +422,7 @@ void BulkLoader::bulkLoadUsingRPLUS(
     std::cerr << "RTree::BulkLoader:R+ Sorting data." << std::endl;
 #endif
 
-    std::vector<Tools::SmartPointer<ExternalSorter::Record*> > es ;
+    Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(10000, 1000));
     uint32_t dim = 0 ; 
     while (stream.hasNext())
     {
@@ -432,23 +432,17 @@ void BulkLoader::bulkLoadUsingRPLUS(
 		    "bulkLoadUsingSTR: RTree bulk load expects SpatialIndex::RTree::Data entries."
 		    );
 
-	es.push_back(Tools::SmartPointer<ExternalSorter::Record*> (new ExternalSorter::Record(d->m_region, d->m_id, d->m_dataLength, d->m_pData, dim)));
+	es->insert(new ExternalSorter::Record(d->m_region, d->m_id, d->m_dataLength, d->m_pData, dim));
 	d->m_pData = 0;
 	delete d;
     }
-
+	/* 
     ExternalSorter::Record * min_rec = *(std::min_element(es.begin(), es.end(), ExternalSorter::Record::SortAscendingX()));
     ExternalSorter::Record * max_rec = *(std::max_element(es.begin(), es.end(), ExternalSorter::Record::SortAscendingY()));
 
     std::cerr << "MIN: " << min_rec->m_r  << std::endl;
     std::cerr << "MAX: " << max_rec->m_r  << std::endl;
-
-
-    //pTree->m_stats.m_u64Data = es->getTotalEntries();
-
-    // create index levels.
-    //uint32_t level = 0;
-
+    */
 }
 
 

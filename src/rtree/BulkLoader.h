@@ -95,14 +95,14 @@ namespace SpatialIndex
 				return false;
 			}
 		    };
-
-		    class Cut {
+		    
+		    struct Cut {
 			public:
 			    uint32_t  dim;
 			    double cost;
 			    double p;
-		    }
-
+		    };
+		    
 
 		    public:
 			Region m_r;
@@ -119,7 +119,7 @@ namespace SpatialIndex
 		void insert(Record* r);
 		void sort();
 		Record* getNextRecord();
-		Cut getCut(uint32_t K, uint32_t dim);
+		struct Cut getCut(uint32_t K, uint32_t dim);
 		uint64_t getTotalEntries() const;
 
 	    private:
