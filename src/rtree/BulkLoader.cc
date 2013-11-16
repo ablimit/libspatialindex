@@ -154,6 +154,48 @@ void ExternalSorter::insert(Record* r)
 	}
 }
 
+void ExternalSorter::getCut(uint32_t K, float cost [], Region * r)
+{
+
+    cost[0] = getCost(K,0);
+    assert(cost[0]>= 0.0);
+    Region temp_r1 = getRegion(K);
+    
+    cost[1] = getCost(K,1);
+    assert(cost[0]>= 0.0);
+    Region temp_r2 = getRegion(K);
+
+    if (cost[0] < cost[1])
+	*r = temp_r1 ;
+    else 
+	*r = temp_r2 ;
+}
+
+float ExternalSorter::getCost(uint32_t K, uint32_t dim)
+{
+    float cost = -1.0; 
+    //TODO:
+    //this code should be optimzed so that we only need to sort top alpha*K elements ; 
+    sort(dim);
+
+    return 0.0 ;
+}
+
+Region ExternalSorter::getRegion(uint32_t K)
+{
+    Region r;
+    return r ;
+}
+
+
+void ExternalSorter::sort(uint32_t dim)
+{
+    if (0 == dim)
+	std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscendingX());
+    else 
+	std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscendingY());
+}
+
 void ExternalSorter::sort()
 {
 	if (m_bInsertionPhase == false)
@@ -418,24 +460,53 @@ void BulkLoader::bulkLoadUsingRPLUS(
     NodePtr n = pTree->readNode(pTree->m_rootID);
     pTree->deleteNode(n.get());
 
+    uint32_t K = bindex; 
+
 #ifndef NDEBUG
     std::cerr << "RTree::BulkLoader:R+ Sorting data." << std::endl;
 #endif
 
-    Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(10000, 1000));
+    Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(10000, 10000));
     uint32_t dim = 0 ; 
     while (stream.hasNext())
     {
 	Data* d = reinterpret_cast<Data*>(stream.getNext());
 	if (d == 0)
 	    throw Tools::IllegalArgumentException(
-		    "bulkLoadUsingSTR: RTree bulk load expects SpatialIndex::RTree::Data entries."
+		    "bulkLoadUsingRPLUS: RTree bulk load expects SpatialIndex::RTree::Data entries."
 		    );
 
 	es->insert(new ExternalSorter::Record(d->m_region, d->m_id, d->m_dataLength, d->m_pData, dim));
 	d->m_pData = 0;
 	delete d;
     }
+    
+    Region * r  = new Region() ; 
+
+    float cost [] = {0.0, 0.0};
+
+    while (true)
+    {
+	if (es->getTotalEntries() <= K) {
+	    // TODO
+	    // calculate the partition MBB 
+	    break; 
+	}
+
+	es->getCut(K,cost,r);
+
+	if (cost[0] < cost[1]){
+	    //sort by X 
+	    //delete the first K elem
+	    
+	}
+	else {
+	    //sort by Y
+	    //delete the first K elem
+	}
+    }
+
+
 	/* 
     ExternalSorter::Record * min_rec = *(std::min_element(es.begin(), es.end(), ExternalSorter::Record::SortAscendingX()));
     ExternalSorter::Record * max_rec = *(std::max_element(es.begin(), es.end(), ExternalSorter::Record::SortAscendingY()));
@@ -443,6 +514,7 @@ void BulkLoader::bulkLoadUsingRPLUS(
     std::cerr << "MIN: " << min_rec->m_r  << std::endl;
     std::cerr << "MAX: " << max_rec->m_r  << std::endl;
     */
+    delete r;
 }
 
 

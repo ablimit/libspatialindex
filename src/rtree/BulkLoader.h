@@ -96,14 +96,6 @@ namespace SpatialIndex
 			}
 		    };
 		    
-		    struct Cut {
-			public:
-			    uint32_t  dim;
-			    double cost;
-			    double p;
-		    };
-		    
-
 		    public:
 			Region m_r;
 			id_type m_id;
@@ -118,8 +110,11 @@ namespace SpatialIndex
 
 		void insert(Record* r);
 		void sort();
+		void sort(uint32_t dim);
+		float getCost(uint32_t K, uint32_t dim);
+		Region getRegion(uint32_t K);
 		Record* getNextRecord();
-		struct Cut getCut(uint32_t K, uint32_t dim);
+		void getCut(uint32_t K, float cost [], Region *r);
 		uint64_t getTotalEntries() const;
 
 	    private:
