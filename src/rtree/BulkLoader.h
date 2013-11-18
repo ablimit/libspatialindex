@@ -115,7 +115,7 @@ namespace SpatialIndex
 		float getCost(uint32_t K, uint32_t dim);
 		//Region getRegion(uint32_t K);
 		Record* getNextRecord();
-		void split(uint32_t K,uint32_t dim, Region &r);
+		void split(uint32_t K,uint32_t dim, Region &r, std::vector<Record*> &node);
 		uint64_t getTotalEntries() const;
 
 	    private:
@@ -164,6 +164,7 @@ namespace SpatialIndex
 		void bulkLoadUsingRPLUS(
 			RTree* pTree,
 			IDataStream& stream,
+			uint32_t partition_size,
 			uint32_t bindex,
 			uint32_t bleaf,
 			uint32_t pageSize, // The number of node entries per page.

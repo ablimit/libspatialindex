@@ -154,12 +154,11 @@ void ExternalSorter::insert(Record* r)
 	}
 }
 
-void ExternalSorter::split(uint32_t K, uint32_t dim, Region &r)
+void ExternalSorter::split(uint32_t K,uint32_t dim, Region &r, std::vector<Record*> &node)
 {
     double c1 [] = {0.0, 0.0};
     double c2 [] = {0.0, 0.0};
     uint32_t adim = (dim+1)%2 ; // another dimension 
-    
     Region p(c1,c2,2);
     
     std::vector<Record*>::size_type len = 0;
@@ -182,14 +181,17 @@ void ExternalSorter::split(uint32_t K, uint32_t dim, Region &r)
 	memcpy(universe.m_pLow, c1, 2 * sizeof(double));
 
     }
-    else if (getTotalEntries()==0){
-	r = p ;
-	return ;
-    }
-    else if (getTotalEntries()==K)
-	len = getTotalEntries();
+    else if (getTotalEntries() <= K)
+    {
+	for (len = 0 ; len < m_buffer.size(); len++) // temporarily used len as a index var
+	    r.combineRegion(m_buffer[len]->m_r);
 
+	len = getTotalEntries();
+    }
+
+    // update container 
     std::vector<Record*>::iterator it=m_buffer.begin(); 
+    node.assign(it,it+len);
     m_buffer.erase(it,it+len);
     m_u64TotalEntries = m_buffer.size();
 }
@@ -204,25 +206,7 @@ float ExternalSorter::getCost(uint32_t K, uint32_t dim)
     Region kr = m_buffer[K-1]->m_r;
     double c1 [] = {0.0, 0.0};
     double c2 [] = {0.0, 0.0};
-    /*
-       switch (dim){
-       case 0:
-       c1[0] = kr.getHigh(0);
-       c1[1] = universe.getLow(1);
-       c2[0] = c1[0];
-       c2[1] = universe.getHigh(1);
-       break;
-       case 1:
-       c1[0] = universe.getLow(0);
-       c1[1] = kr.getHigh(1);
-       c2[0] = universe.getHigh(0);
-       c2[1] = c1[1]; 
-       break;
-       default:
-       throw Tools::IllegalArgumentException( "getCost: Dimension not implemented yet.");
-       break;
-       }
-       */
+    
     c1[dim] = kr.getHigh(dim);
     c1[adim] = universe.getLow(adim);
     c2[dim] = c1[dim];
@@ -267,8 +251,20 @@ Region ExternalSorter::getUniverse(){
 
 void ExternalSorter::sort(uint32_t dim, uint64_t K)
 {
-    if (K<1)
-    {
+    if (K > 0 ) {
+	switch(dim){
+	    case 0 :
+		std::partial_sort(m_buffer.begin(), m_buffer.begin()+K, m_buffer.end(), Record::SortAscendingX());
+		break;
+
+	    case 1:
+		std::partial_sort(m_buffer.begin(), m_buffer.begin()+K, m_buffer.end(), Record::SortAscendingY());
+		break;
+	    default:
+		throw Tools::IllegalStateException("ExternalSorter::sort Incompatible sorting dimensions.");
+	}
+    }
+    else {
 	switch(dim){
 	    case 0 :
 		std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscendingX());
@@ -278,20 +274,6 @@ void ExternalSorter::sort(uint32_t dim, uint64_t K)
 		std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscendingY());
 		break;
 
-	    default:
-		throw Tools::IllegalStateException("ExternalSorter::sort Incompatible sorting dimensions.");
-	}
-    }
-    else 
-    {
-	switch(dim){
-	    case 0 :
-		std::partial_sort(m_buffer.begin(), m_buffer.begin()+K, m_buffer.end(), Record::SortAscendingX());
-		break;
-
-	    case 1:
-		std::partial_sort(m_buffer.begin(), m_buffer.begin()+K, m_buffer.end(), Record::SortAscendingY());
-		break;
 	    default:
 		throw Tools::IllegalStateException("ExternalSorter::sort Incompatible sorting dimensions.");
 	}
@@ -497,7 +479,7 @@ void BulkLoader::bulkLoadUsingSTRIP(
     }
 
     // sort by dim 
-    es->sort();
+    es->sort(dim);
 
     pTree->m_stats.m_u64Data = es->getTotalEntries();
 
@@ -534,17 +516,16 @@ void BulkLoader::bulkLoadUsingSTRIP(
 	std::cout << n->m_identifier << " " << n->m_nodeMBR << std::endl;
 	delete n;
     }
+    level++;
 
     // create final root node 
-    Node* nr = createNode(pTree, rnode, 1);
+    Node* nr = createNode(pTree, rnode, level);
     pTree->writeNode(nr);
     pTree->m_rootID = nr->m_identifier;
     delete nr;
 
-
-    pTree->m_stats.m_u32TreeHeight = 1;
+    pTree->m_stats.m_u32TreeHeight = level;
     pTree->storeHeader();
-
 }
 
 
@@ -552,6 +533,7 @@ void BulkLoader::bulkLoadUsingSTRIP(
 void BulkLoader::bulkLoadUsingRPLUS(
 	SpatialIndex::RTree::RTree* pTree,
 	IDataStream& stream,
+	uint32_t partition_size,
 	uint32_t bindex,
 	uint32_t bleaf,
 	uint32_t pageSize,
@@ -564,17 +546,19 @@ void BulkLoader::bulkLoadUsingRPLUS(
     NodePtr n = pTree->readNode(pTree->m_rootID);
     pTree->deleteNode(n.get());
 
-    uint32_t K = bindex; 
     const uint32_t DIM_X =0;
     const uint32_t DIM_Y =1;
+
 #ifndef NDEBUG
-    std::cerr << "RTree::BulkLoader:R+ Sorting data." << std::endl;
+    std::cerr << "RTree::BulkLoader:R+ with K=" << partition_size << " , sorting data.."<< std::endl;
 #endif
 
     Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(10000, 10000));
     uint32_t dim = DIM_X; 
+    int i =0;
     while (stream.hasNext())
     {
+	i++;
 	Data* d = reinterpret_cast<Data*>(stream.getNext());
 	if (d == 0)
 	    throw Tools::IllegalArgumentException(
@@ -586,43 +570,81 @@ void BulkLoader::bulkLoadUsingRPLUS(
 	delete d;
     }
     Region r = es->getUniverse();
+    
+    pTree->m_stats.m_u64Data = es->getTotalEntries();
 
 #ifndef NDEBUG
     std::cerr << "Spatial Universe: " << r << std::endl;
+    std::cerr << " |collection| = " << es->getTotalEntries() << ", i = " << i<< std::endl;
 #endif
 
+    // create index levels.
+    uint32_t level = 0;
+    std::vector<ExternalSorter::Record*> node;
+    std::vector<ExternalSorter::Record*> rnode;// for creating root node 
     float cost [] = {0.0, 0.0};
-    int iteration = 1; 
-
-#ifndef NDEBUG
-    std::cerr << "RTree::BulkLoader R+ partition started." << std::endl;
-#endif
+    int iteration = 0; 
 
     while (true)
     {
 	cost [0] = 0.0;
 	cost [1] = 0.0;
+	iteration++;
+
+	if (es->getTotalEntries() <= partition_size) {
+	    
+	    es->split(partition_size, dim, r,node);
+
 #ifndef NDEBUG
-	std::cerr << "Iteration: " << iteration << std::endl;
+	    // last partition
+	std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
+	std::cerr << " |collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
 #endif
-	if (es->getTotalEntries() <= K) {
 	    break; 
-	    es->split(K, dim, r);
 	}
 
-	cost[DIM_X] = es->getCost(K,DIM_X);
-	cost[DIM_Y] = es->getCost(K,DIM_Y);
+	cost[DIM_X] = es->getCost(partition_size,DIM_X);
+	cost[DIM_Y] = es->getCost(partition_size,DIM_Y);
 
-	dim = (cost[DIM_X] < cost[DIM_Y] )? DIM_X : DIM_Y ;
-	es->split(K, dim, r);
+	dim = (cost[DIM_X] <= cost[DIM_Y] )? DIM_X : DIM_Y ;
+	es->split(partition_size, dim, r,node);
+
 #ifndef NDEBUG
-	std::cerr << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
+	std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
+	std::cerr << " |collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
 #endif
+	
+	/*
+	Node* n = createNode(pTree, node, level);
+	node.clear();
+	pTree->writeNode(n);
+	rnode.push_back(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
+	delete n;
+	*/
+	node.clear();
+	std::cerr.flush();
+    } // end while 
+/*
+    if (! node.empty())
+    {
+	Node* n = createNode(pTree, node, level);
+	pTree->writeNode(n);
+	rnode.push_back(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
+	delete n;
     }
-    // last partition
-#ifndef NDEBUG
-    std::cerr << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
-#endif
+
+    level++;
+
+    // create final root node 
+    Node* nr = createNode(pTree, rnode, level);
+    pTree->writeNode(nr);
+    pTree->m_rootID = nr->m_identifier;
+    delete nr;
+
+
+    pTree->m_stats.m_u32TreeHeight = level;
+    pTree->storeHeader();
+    */
 
 }
 

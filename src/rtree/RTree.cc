@@ -210,7 +210,7 @@ SpatialIndex::ISpatialIndex* SpatialIndex::RTree::createAndBulkLoadNewRTree(
 		bl.bulkLoadUsingSTR(static_cast<RTree*>(tree), stream, bindex, bleaf, 10000, 10000);
 		break;
 	case BLM_RP:
-		bl.bulkLoadUsingRPLUS(static_cast<RTree*>(tree), stream, bindex, leafCapacity, 10000, 10000);
+		bl.bulkLoadUsingRPLUS(static_cast<RTree*>(tree), stream, leafCapacity, indexCapacity, leafCapacity, 10000, 10000);
 		break;
 	case BLM_STRIP:
 		bl.bulkLoadUsingSTRIP(static_cast<RTree*>(tree), stream, leafCapacity, indexCapacity);
