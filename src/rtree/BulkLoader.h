@@ -110,11 +110,12 @@ namespace SpatialIndex
 
 		void insert(Record* r);
 		void sort();
-		void sort(uint32_t dim);
+		void sort(uint32_t dim, uint64_t K=0);
+		Region getUniverse();
 		float getCost(uint32_t K, uint32_t dim);
-		Region getRegion(uint32_t K);
+		//Region getRegion(uint32_t K);
 		Record* getNextRecord();
-		void getCut(uint32_t K, float cost [], Region *r);
+		void split(uint32_t K,uint32_t dim, Region &r);
 		uint64_t getTotalEntries() const;
 
 	    private:
@@ -145,6 +146,8 @@ namespace SpatialIndex
 		std::vector<Record*> m_buffer;
 		uint64_t m_u64TotalEntries;
 		uint32_t m_stI;
+		uint32_t last_dim; 
+		Region universe;
 	};
 
 	class BulkLoader

@@ -119,7 +119,7 @@ void ExternalSorter::Record::loadFromFile(Tools::TemporaryFile& f)
 //
 ExternalSorter::ExternalSorter(uint32_t u32PageSize, uint32_t u32BufferPages)
 : m_bInsertionPhase(true), m_u32PageSize(u32PageSize),
-  m_u32BufferPages(u32BufferPages), m_u64TotalEntries(0), m_stI(0)
+  m_u32BufferPages(u32BufferPages), m_u64TotalEntries(0), m_stI(0), last_dim(-1)
 {
 }
 
@@ -154,209 +154,313 @@ void ExternalSorter::insert(Record* r)
 	}
 }
 
-void ExternalSorter::getCut(uint32_t K, float cost [], Region * r)
+void ExternalSorter::split(uint32_t K, uint32_t dim, Region &r)
 {
-
-    cost[0] = getCost(K,0);
-    assert(cost[0]>= 0.0);
-    Region temp_r1 = getRegion(K);
+    double c1 [] = {0.0, 0.0};
+    double c2 [] = {0.0, 0.0};
+    uint32_t adim = (dim+1)%2 ; // another dimension 
     
-    cost[1] = getCost(K,1);
-    assert(cost[0]>= 0.0);
-    Region temp_r2 = getRegion(K);
+    Region p(c1,c2,2);
+    
+    std::vector<Record*>::size_type len = 0;
 
-    if (cost[0] < cost[1])
-	*r = temp_r1 ;
-    else 
-	*r = temp_r2 ;
+    if (getTotalEntries() >K)
+    {
+	if (dim != last_dim)
+	    sort(dim,K);
+	len = K;
+	p = m_buffer[K-1]->m_r ; 
+    
+	c1[dim] = p.getHigh(dim);
+	c1[adim] = universe.getLow(adim);
+	c2[dim] = c1[dim];
+	c2[adim] = universe.getHigh(adim);
+		
+	memcpy(r.m_pLow, universe.m_pLow,   2 * sizeof(double));
+	memcpy(r.m_pHigh, c2, 2 * sizeof(double));
+	
+	memcpy(universe.m_pLow, c1, 2 * sizeof(double));
+
+    }
+    else if (getTotalEntries()==0){
+	r = p ;
+	return ;
+    }
+    else if (getTotalEntries()==K)
+	len = getTotalEntries();
+
+    std::vector<Record*>::iterator it=m_buffer.begin(); 
+    m_buffer.erase(it,it+len);
+    m_u64TotalEntries = m_buffer.size();
 }
 
 float ExternalSorter::getCost(uint32_t K, uint32_t dim)
 {
-    float cost = -1.0; 
+    uint32_t adim = (dim+1)%2 ; // another dimension 
+    float cost = 0.0; 
     //TODO:
     //this code should be optimzed so that we only need to sort top alpha*K elements ; 
     sort(dim);
+    Region kr = m_buffer[K-1]->m_r;
+    double c1 [] = {0.0, 0.0};
+    double c2 [] = {0.0, 0.0};
+    /*
+       switch (dim){
+       case 0:
+       c1[0] = kr.getHigh(0);
+       c1[1] = universe.getLow(1);
+       c2[0] = c1[0];
+       c2[1] = universe.getHigh(1);
+       break;
+       case 1:
+       c1[0] = universe.getLow(0);
+       c1[1] = kr.getHigh(1);
+       c2[0] = universe.getHigh(0);
+       c2[1] = c1[1]; 
+       break;
+       default:
+       throw Tools::IllegalArgumentException( "getCost: Dimension not implemented yet.");
+       break;
+       }
+       */
+    c1[dim] = kr.getHigh(dim);
+    c1[adim] = universe.getLow(adim);
+    c2[dim] = c1[dim];
+    c2[adim] = universe.getHigh(adim);
+    LineSegment lseg(c1,c2,universe.getDimension());
 
-    return 0.0 ;
+    // iterate left side
+    for (std::vector<Record*>::size_type i = K; i >0 ;i--)
+    {
+	if (m_buffer[i]->m_r.intersectsLineSegment(lseg))
+	    cost += 1.0 ;
+	else 
+	{
+	    if (i == 0 && m_buffer[i]->m_r.intersectsLineSegment(lseg))
+		cost += 1.0 ;
+	    else
+		break;
+	}
+    }
+    // iterate right side 
+    for (std::vector<Record*>::size_type i = K+1; i <getTotalEntries(); i++)
+    {
+	if (m_buffer[i]->m_r.intersectsLineSegment(lseg))
+	    cost += 1.0 ;
+	else 
+	    break;
+    }
+    return cost;
 }
 
-Region ExternalSorter::getRegion(uint32_t K)
-{
-    Region r;
-    return r ;
+Region ExternalSorter::getUniverse(){
+    //init
+    if (getTotalEntries()>0)
+	universe = m_buffer[0]->m_r;
+
+    for (std::vector<Record*>::iterator it=m_buffer.begin(); it != m_buffer.end(); ++it)
+    {
+	universe.combineRegion((*it)->m_r);
+    }
+    return universe;
 }
 
-
-void ExternalSorter::sort(uint32_t dim)
+void ExternalSorter::sort(uint32_t dim, uint64_t K)
 {
-    if (0 == dim)
-	std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscendingX());
+    if (K<1)
+    {
+	switch(dim){
+	    case 0 :
+		std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscendingX());
+		break;
+
+	    case 1:
+		std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscendingY());
+		break;
+
+	    default:
+		throw Tools::IllegalStateException("ExternalSorter::sort Incompatible sorting dimensions.");
+	}
+    }
     else 
-	std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscendingY());
+    {
+	switch(dim){
+	    case 0 :
+		std::partial_sort(m_buffer.begin(), m_buffer.begin()+K, m_buffer.end(), Record::SortAscendingX());
+		break;
+
+	    case 1:
+		std::partial_sort(m_buffer.begin(), m_buffer.begin()+K, m_buffer.end(), Record::SortAscendingY());
+		break;
+	    default:
+		throw Tools::IllegalStateException("ExternalSorter::sort Incompatible sorting dimensions.");
+	}
+    }
+
+    last_dim = dim ;
 }
 
 void ExternalSorter::sort()
 {
-	if (m_bInsertionPhase == false)
-		throw Tools::IllegalStateException("ExternalSorter::sort: Input has already been sorted.");
+    if (m_bInsertionPhase == false)
+	throw Tools::IllegalStateException("ExternalSorter::sort: Input has already been sorted.");
 
-	if (m_runs.empty())
-	{
-		// The data fits in main memory. No need to store to disk.
-		std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscending());
-		m_bInsertionPhase = false;
-		return;
-	}
-
-	if (m_buffer.size() > 0)
-	{
-		// Whatever remained in the buffer (if not filled) needs to be stored
-		// as the final bucket.
-		std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscending());
-		Tools::TemporaryFile* tf = new Tools::TemporaryFile();
-		for (size_t j = 0; j < m_buffer.size(); ++j)
-		{
-			m_buffer[j]->storeToFile(*tf);
-			delete m_buffer[j];
-		}
-		m_buffer.clear();
-		tf->rewindForReading();
-		m_runs.push_back(Tools::SmartPointer<Tools::TemporaryFile>(tf));
-	}
-
-	if (m_runs.size() == 1)
-	{
-		m_sortedFile = m_runs.front();
-	}
-	else
-	{
-		Record* r = 0;
-
-		while (m_runs.size() > 1)
-		{
-			Tools::SmartPointer<Tools::TemporaryFile> tf(new Tools::TemporaryFile());
-			std::vector<Tools::SmartPointer<Tools::TemporaryFile> > buckets;
-			std::vector<std::queue<Record*> > buffers;
-			std::priority_queue<PQEntry, std::vector<PQEntry>, PQEntry::SortAscending> pq;
-
-			// initialize buffers and priority queue.
-			std::list<Tools::SmartPointer<Tools::TemporaryFile> >::iterator it = m_runs.begin();
-			for (uint32_t i = 0; i < (std::min)(static_cast<uint32_t>(m_runs.size()), m_u32BufferPages); ++i)
-			{
-				buckets.push_back(*it);
-				buffers.push_back(std::queue<Record*>());
-
-				r = new Record();
-				r->loadFromFile(**it);
-					// a run cannot be empty initially, so this should never fail.
-				pq.push(PQEntry(r, i));
-
-				for (uint32_t j = 0; j < m_u32PageSize - 1; ++j)
-				{
-					// fill the buffer with the rest of the page of records.
-					try
-					{
-						r = new Record();
-						r->loadFromFile(**it);
-						buffers.back().push(r);
-					}
-					catch (Tools::EndOfStreamException)
-					{
-						delete r;
-						break;
-					}
-				}
-				++it;
-			}
-
-			// exhaust buckets, buffers, and priority queue.
-			while (! pq.empty())
-			{
-				PQEntry e = pq.top(); pq.pop();
-				e.m_r->storeToFile(*tf);
-				delete e.m_r;
-
-				if (! buckets[e.m_u32Index]->eof() && buffers[e.m_u32Index].empty())
-				{
-					for (uint32_t j = 0; j < m_u32PageSize; ++j)
-					{
-						try
-						{
-							r = new Record();
-							r->loadFromFile(*buckets[e.m_u32Index]);
-							buffers[e.m_u32Index].push(r);
-						}
-						catch (Tools::EndOfStreamException)
-						{
-							delete r;
-							break;
-						}
-					}
-				}
-
-				if (! buffers[e.m_u32Index].empty())
-				{
-					e.m_r = buffers[e.m_u32Index].front();
-					buffers[e.m_u32Index].pop();
-					pq.push(e);
-				}
-			}
-
-			tf->rewindForReading();
-
-			// check if another pass is needed.
-			uint32_t u32Count = std::min(static_cast<uint32_t>(m_runs.size()), m_u32BufferPages);
-			for (uint32_t i = 0; i < u32Count; ++i)
-			{
-				m_runs.pop_front();
-			}
-
-			if (m_runs.size() == 0)
-			{
-				m_sortedFile = tf;
-				break;
-			}
-			else
-			{
-				m_runs.push_back(tf);
-			}
-		}
-	}
-
+    if (m_runs.empty())
+    {
+	// The data fits in main memory. No need to store to disk.
+	std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscending());
 	m_bInsertionPhase = false;
+	return;
+    }
+
+    if (m_buffer.size() > 0)
+    {
+	// Whatever remained in the buffer (if not filled) needs to be stored
+	// as the final bucket.
+	std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscending());
+	Tools::TemporaryFile* tf = new Tools::TemporaryFile();
+	for (size_t j = 0; j < m_buffer.size(); ++j)
+	{
+	    m_buffer[j]->storeToFile(*tf);
+	    delete m_buffer[j];
+	}
+	m_buffer.clear();
+	tf->rewindForReading();
+	m_runs.push_back(Tools::SmartPointer<Tools::TemporaryFile>(tf));
+    }
+
+    if (m_runs.size() == 1)
+    {
+	m_sortedFile = m_runs.front();
+    }
+    else
+    {
+	Record* r = 0;
+
+	while (m_runs.size() > 1)
+	{
+	    Tools::SmartPointer<Tools::TemporaryFile> tf(new Tools::TemporaryFile());
+	    std::vector<Tools::SmartPointer<Tools::TemporaryFile> > buckets;
+	    std::vector<std::queue<Record*> > buffers;
+	    std::priority_queue<PQEntry, std::vector<PQEntry>, PQEntry::SortAscending> pq;
+
+	    // initialize buffers and priority queue.
+	    std::list<Tools::SmartPointer<Tools::TemporaryFile> >::iterator it = m_runs.begin();
+	    for (uint32_t i = 0; i < (std::min)(static_cast<uint32_t>(m_runs.size()), m_u32BufferPages); ++i)
+	    {
+		buckets.push_back(*it);
+		buffers.push_back(std::queue<Record*>());
+
+		r = new Record();
+		r->loadFromFile(**it);
+		// a run cannot be empty initially, so this should never fail.
+		pq.push(PQEntry(r, i));
+
+		for (uint32_t j = 0; j < m_u32PageSize - 1; ++j)
+		{
+		    // fill the buffer with the rest of the page of records.
+		    try
+		    {
+			r = new Record();
+			r->loadFromFile(**it);
+			buffers.back().push(r);
+		    }
+		    catch (Tools::EndOfStreamException)
+		    {
+			delete r;
+			break;
+		    }
+		}
+		++it;
+	    }
+
+	    // exhaust buckets, buffers, and priority queue.
+	    while (! pq.empty())
+	    {
+		PQEntry e = pq.top(); pq.pop();
+		e.m_r->storeToFile(*tf);
+		delete e.m_r;
+
+		if (! buckets[e.m_u32Index]->eof() && buffers[e.m_u32Index].empty())
+		{
+		    for (uint32_t j = 0; j < m_u32PageSize; ++j)
+		    {
+			try
+			{
+			    r = new Record();
+			    r->loadFromFile(*buckets[e.m_u32Index]);
+			    buffers[e.m_u32Index].push(r);
+			}
+			catch (Tools::EndOfStreamException)
+			{
+			    delete r;
+			    break;
+			}
+		    }
+		}
+
+		if (! buffers[e.m_u32Index].empty())
+		{
+		    e.m_r = buffers[e.m_u32Index].front();
+		    buffers[e.m_u32Index].pop();
+		    pq.push(e);
+		}
+	    }
+
+	    tf->rewindForReading();
+
+	    // check if another pass is needed.
+	    uint32_t u32Count = std::min(static_cast<uint32_t>(m_runs.size()), m_u32BufferPages);
+	    for (uint32_t i = 0; i < u32Count; ++i)
+	    {
+		m_runs.pop_front();
+	    }
+
+	    if (m_runs.size() == 0)
+	    {
+		m_sortedFile = tf;
+		break;
+	    }
+	    else
+	    {
+		m_runs.push_back(tf);
+	    }
+	}
+    }
+
+    m_bInsertionPhase = false;
 }
 
 ExternalSorter::Record* ExternalSorter::getNextRecord()
 {
-	if (m_bInsertionPhase == true)
-		throw Tools::IllegalStateException("ExternalSorter::getNextRecord: Input has not been sorted yet.");
+    if (m_bInsertionPhase == true)
+	throw Tools::IllegalStateException("ExternalSorter::getNextRecord: Input has not been sorted yet.");
 
-	Record* ret;
+    Record* ret;
 
-	if (m_sortedFile.get() == 0)
+    if (m_sortedFile.get() == 0)
+    {
+	if (m_stI < m_buffer.size())
 	{
-		if (m_stI < m_buffer.size())
-		{
-			ret = m_buffer[m_stI];
-			m_buffer[m_stI] = 0;
-			++m_stI;
-		}
-		else
-			throw Tools::EndOfStreamException("");
+	    ret = m_buffer[m_stI];
+	    m_buffer[m_stI] = 0;
+	    ++m_stI;
 	}
 	else
-	{
-		ret = new Record();
-		ret->loadFromFile(*m_sortedFile);
-	}
+	    throw Tools::EndOfStreamException("");
+    }
+    else
+    {
+	ret = new Record();
+	ret->loadFromFile(*m_sortedFile);
+    }
 
-	return ret;
+    return ret;
 }
 
 inline uint64_t ExternalSorter::getTotalEntries() const
 {
-	return m_u64TotalEntries;
+    return m_u64TotalEntries;
 }
 
 // BulkLoader
@@ -461,13 +565,14 @@ void BulkLoader::bulkLoadUsingRPLUS(
     pTree->deleteNode(n.get());
 
     uint32_t K = bindex; 
-
+    const uint32_t DIM_X =0;
+    const uint32_t DIM_Y =1;
 #ifndef NDEBUG
     std::cerr << "RTree::BulkLoader:R+ Sorting data." << std::endl;
 #endif
 
     Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(10000, 10000));
-    uint32_t dim = 0 ; 
+    uint32_t dim = DIM_X; 
     while (stream.hasNext())
     {
 	Data* d = reinterpret_cast<Data*>(stream.getNext());
@@ -480,41 +585,45 @@ void BulkLoader::bulkLoadUsingRPLUS(
 	d->m_pData = 0;
 	delete d;
     }
-    
-    Region * r  = new Region() ; 
+    Region r = es->getUniverse();
+
+#ifndef NDEBUG
+    std::cerr << "Spatial Universe: " << r << std::endl;
+#endif
 
     float cost [] = {0.0, 0.0};
+    int iteration = 1; 
+
+#ifndef NDEBUG
+    std::cerr << "RTree::BulkLoader R+ partition started." << std::endl;
+#endif
 
     while (true)
     {
+	cost [0] = 0.0;
+	cost [1] = 0.0;
+#ifndef NDEBUG
+	std::cerr << "Iteration: " << iteration << std::endl;
+#endif
 	if (es->getTotalEntries() <= K) {
-	    // TODO
-	    // calculate the partition MBB 
 	    break; 
+	    es->split(K, dim, r);
 	}
 
-	es->getCut(K,cost,r);
+	cost[DIM_X] = es->getCost(K,DIM_X);
+	cost[DIM_Y] = es->getCost(K,DIM_Y);
 
-	if (cost[0] < cost[1]){
-	    //sort by X 
-	    //delete the first K elem
-	    
-	}
-	else {
-	    //sort by Y
-	    //delete the first K elem
-	}
+	dim = (cost[DIM_X] < cost[DIM_Y] )? DIM_X : DIM_Y ;
+	es->split(K, dim, r);
+#ifndef NDEBUG
+	std::cerr << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
+#endif
     }
+    // last partition
+#ifndef NDEBUG
+    std::cerr << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
+#endif
 
-
-	/* 
-    ExternalSorter::Record * min_rec = *(std::min_element(es.begin(), es.end(), ExternalSorter::Record::SortAscendingX()));
-    ExternalSorter::Record * max_rec = *(std::max_element(es.begin(), es.end(), ExternalSorter::Record::SortAscendingY()));
-
-    std::cerr << "MIN: " << min_rec->m_r  << std::endl;
-    std::cerr << "MAX: " << max_rec->m_r  << std::endl;
-    */
-    delete r;
 }
 
 
