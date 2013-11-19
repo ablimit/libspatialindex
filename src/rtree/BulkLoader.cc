@@ -183,9 +183,9 @@ void ExternalSorter::split(uint32_t K,uint32_t dim, Region &r, std::vector<Recor
     }
     else if (getTotalEntries() <= K)
     {
-	for (len = 0 ; len < m_buffer.size(); len++) // temporarily used len as a index var
-	    r.combineRegion(m_buffer[len]->m_r);
-
+	//for (len = 0 ; len < m_buffer.size(); len++) // temporarily used len as a index var
+	//    r.combineRegion(m_buffer[len]->m_r);
+	r = universe; 
 	len = getTotalEntries();
     }
 
@@ -598,7 +598,7 @@ void BulkLoader::bulkLoadUsingRPLUS(
 #ifndef NDEBUG
 	    // last partition
 	std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
-	std::cerr << " |collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
+	std::cerr << "|collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
 #endif
 	    break; 
 	}
@@ -611,7 +611,7 @@ void BulkLoader::bulkLoadUsingRPLUS(
 
 #ifndef NDEBUG
 	std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
-	std::cerr << " |collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
+	std::cerr << "|collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
 #endif
 	
 	/*
