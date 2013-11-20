@@ -23,7 +23,7 @@
  * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
  * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
  * DEALINGS IN THE SOFTWARE.
-******************************************************************************/
+ ******************************************************************************/
 
 #include <cstring>
 #include <stdio.h>
@@ -46,112 +46,112 @@ using namespace SpatialIndex::RTree;
 //
 // ExternalSorter::Record
 //
-ExternalSorter::Record::Record()
+    ExternalSorter::Record::Record()
 : m_pData(0)
 {
 }
 
-ExternalSorter::Record::Record(const Region& r, id_type id, uint32_t len, byte* pData, uint32_t s)
+    ExternalSorter::Record::Record(const Region& r, id_type id, uint32_t len, byte* pData, uint32_t s)
 : m_r(r), m_id(id), m_len(len), m_pData(pData), m_s(s)
 {
 }
 
 ExternalSorter::Record::~Record()
 {
-	delete[] m_pData;
+    delete[] m_pData;
 }
 
 bool ExternalSorter::Record::operator<(const Record& r) const
 {
-	if (m_s != r.m_s)
-		throw Tools::IllegalStateException("ExternalSorter::Record::operator<: Incompatible sorting dimensions.");
+    if (m_s != r.m_s)
+	throw Tools::IllegalStateException("ExternalSorter::Record::operator<: Incompatible sorting dimensions.");
 
-	if (m_r.m_pHigh[m_s] + m_r.m_pLow[m_s] < r.m_r.m_pHigh[m_s] + r.m_r.m_pLow[m_s])
-		return true;
-	else
-		return false;
+    if (m_r.m_pHigh[m_s] + m_r.m_pLow[m_s] < r.m_r.m_pHigh[m_s] + r.m_r.m_pLow[m_s])
+	return true;
+    else
+	return false;
 }
 
 void ExternalSorter::Record::storeToFile(Tools::TemporaryFile& f)
 {
-	f.write(static_cast<uint64_t>(m_id));
-	f.write(m_r.m_dimension);
-	f.write(m_s);
+    f.write(static_cast<uint64_t>(m_id));
+    f.write(m_r.m_dimension);
+    f.write(m_s);
 
-	for (uint32_t i = 0; i < m_r.m_dimension; ++i)
-	{
-		f.write(m_r.m_pLow[i]);
-		f.write(m_r.m_pHigh[i]);
-	}
+    for (uint32_t i = 0; i < m_r.m_dimension; ++i)
+    {
+	f.write(m_r.m_pLow[i]);
+	f.write(m_r.m_pHigh[i]);
+    }
 
-	f.write(m_len);
-	if (m_len > 0) f.write(m_len, m_pData);
+    f.write(m_len);
+    if (m_len > 0) f.write(m_len, m_pData);
 }
 
 void ExternalSorter::Record::loadFromFile(Tools::TemporaryFile& f)
 {
-	m_id = static_cast<id_type>(f.readUInt64());
-	uint32_t dim = f.readUInt32();
-	m_s = f.readUInt32();
+    m_id = static_cast<id_type>(f.readUInt64());
+    uint32_t dim = f.readUInt32();
+    m_s = f.readUInt32();
 
-	if (dim != m_r.m_dimension)
-	{
-		delete[] m_r.m_pLow;
-		delete[] m_r.m_pHigh;
-		m_r.m_dimension = dim;
-		m_r.m_pLow = new double[dim];
-		m_r.m_pHigh = new double[dim];
-	}
+    if (dim != m_r.m_dimension)
+    {
+	delete[] m_r.m_pLow;
+	delete[] m_r.m_pHigh;
+	m_r.m_dimension = dim;
+	m_r.m_pLow = new double[dim];
+	m_r.m_pHigh = new double[dim];
+    }
 
-	for (uint32_t i = 0; i < m_r.m_dimension; ++i)
-	{
-		m_r.m_pLow[i] = f.readDouble();
-		m_r.m_pHigh[i] = f.readDouble();
-	}
+    for (uint32_t i = 0; i < m_r.m_dimension; ++i)
+    {
+	m_r.m_pLow[i] = f.readDouble();
+	m_r.m_pHigh[i] = f.readDouble();
+    }
 
-	m_len = f.readUInt32();
-	delete[] m_pData; m_pData = 0;
-	if (m_len > 0) f.readBytes(m_len, &m_pData);
+    m_len = f.readUInt32();
+    delete[] m_pData; m_pData = 0;
+    if (m_len > 0) f.readBytes(m_len, &m_pData);
 }
 
 //
 // ExternalSorter
 //
-ExternalSorter::ExternalSorter(uint32_t u32PageSize, uint32_t u32BufferPages)
+    ExternalSorter::ExternalSorter(uint32_t u32PageSize, uint32_t u32BufferPages)
 : m_bInsertionPhase(true), m_u32PageSize(u32PageSize),
-  m_u32BufferPages(u32BufferPages), m_u64TotalEntries(0), m_stI(0), last_dim(-1)
+    m_u32BufferPages(u32BufferPages), m_u64TotalEntries(0), m_stI(0), last_dim(-1)
 {
 }
 
 ExternalSorter::~ExternalSorter()
 {
-	for (m_stI = 0; m_stI < m_buffer.size(); ++m_stI) delete m_buffer[m_stI];
+    for (m_stI = 0; m_stI < m_buffer.size(); ++m_stI) delete m_buffer[m_stI];
 }
 
 void ExternalSorter::insert(Record* r)
 {
-	if (m_bInsertionPhase == false)
-		throw Tools::IllegalStateException("ExternalSorter::insert: Input has already been sorted.");
+    if (m_bInsertionPhase == false)
+	throw Tools::IllegalStateException("ExternalSorter::insert: Input has already been sorted.");
 
-	m_buffer.push_back(r);
-	++m_u64TotalEntries;
+    m_buffer.push_back(r);
+    ++m_u64TotalEntries;
 
-	// this will create the initial, sorted buckets before the
-	// external merge sort.
-	//if (m_buffer.size() >= static_cast<uint64_t>m_u32PageSize * static_cast<uint64_t>m_u32BufferPages)
-	if (m_buffer.size() >= 100000000) // 100 Million objects 
+    // this will create the initial, sorted buckets before the
+    // external merge sort.
+    //if (m_buffer.size() >= static_cast<uint64_t>m_u32PageSize * static_cast<uint64_t>m_u32BufferPages)
+    if (m_buffer.size() >= 100000000) // 100 Million objects 
+    {
+	std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscending());
+	Tools::TemporaryFile* tf = new Tools::TemporaryFile();
+	for (size_t j = 0; j < m_buffer.size(); ++j)
 	{
-		std::sort(m_buffer.begin(), m_buffer.end(), Record::SortAscending());
-		Tools::TemporaryFile* tf = new Tools::TemporaryFile();
-		for (size_t j = 0; j < m_buffer.size(); ++j)
-		{
-			m_buffer[j]->storeToFile(*tf);
-			delete m_buffer[j];
-		}
-		m_buffer.clear();
-		tf->rewindForReading();
-		m_runs.push_back(Tools::SmartPointer<Tools::TemporaryFile>(tf));
+	    m_buffer[j]->storeToFile(*tf);
+	    delete m_buffer[j];
 	}
+	m_buffer.clear();
+	tf->rewindForReading();
+	m_runs.push_back(Tools::SmartPointer<Tools::TemporaryFile>(tf));
+    }
 }
 
 void ExternalSorter::split(uint32_t K,uint32_t dim, Region &r, std::vector<Record*> &node)
@@ -160,7 +160,7 @@ void ExternalSorter::split(uint32_t K,uint32_t dim, Region &r, std::vector<Recor
     double c2 [] = {0.0, 0.0};
     uint32_t adim = (dim+1)%2 ; // another dimension 
     Region p(c1,c2,2);
-    
+
     std::vector<Record*>::size_type len = 0;
 
     if (getTotalEntries() >K)
@@ -169,15 +169,15 @@ void ExternalSorter::split(uint32_t K,uint32_t dim, Region &r, std::vector<Recor
 	    sort(dim,K);
 	len = K;
 	p = m_buffer[K-1]->m_r ; 
-    
+
 	c1[dim] = p.getHigh(dim);
 	c1[adim] = universe.getLow(adim);
 	c2[dim] = c1[dim];
 	c2[adim] = universe.getHigh(adim);
-		
+
 	memcpy(r.m_pLow, universe.m_pLow,   2 * sizeof(double));
 	memcpy(r.m_pHigh, c2, 2 * sizeof(double));
-	
+
 	memcpy(universe.m_pLow, c1, 2 * sizeof(double));
 
     }
@@ -191,7 +191,7 @@ void ExternalSorter::split(uint32_t K,uint32_t dim, Region &r, std::vector<Recor
 
     // update container 
     std::vector<Record*>::iterator it=m_buffer.begin(); 
-    node.assign(it,it+len);
+    //node.assign(it,it+len);
     m_buffer.erase(it,it+len);
     m_u64TotalEntries = m_buffer.size();
 }
@@ -206,7 +206,7 @@ float ExternalSorter::getCost(uint32_t K, uint32_t dim)
     Region kr = m_buffer[K-1]->m_r;
     double c1 [] = {0.0, 0.0};
     double c2 [] = {0.0, 0.0};
-    
+
     c1[dim] = kr.getHigh(dim);
     c1[adim] = universe.getLow(adim);
     c2[dim] = c1[dim];
@@ -470,7 +470,7 @@ void BulkLoader::bulkLoadUsingSTRIP(
 	Data* d = reinterpret_cast<Data*>(stream.getNext());
 	if (d == 0)
 	    throw Tools::IllegalArgumentException(
-		    "bulkLoadUsingSTR: RTree bulk load expects SpatialIndex::RTree::Data entries."
+		    "bulkLoadUsingSTRIP: RTree bulk load expects SpatialIndex::RTree::Data entries."
 		    );
 
 	es->insert(new ExternalSorter::Record(d->m_region, d->m_id, d->m_dataLength, d->m_pData, dim));
@@ -543,22 +543,26 @@ void BulkLoader::bulkLoadUsingRPLUS(
 	throw Tools::IllegalArgumentException(
 		"RTree::BulkLoader::bulkLoadUsingRplus: Empty data stream given."
 		);
+
+
+    /* prepare the tree */
     NodePtr n = pTree->readNode(pTree->m_rootID);
     pTree->deleteNode(n.get());
 
-    const uint32_t DIM_X =0;
-    const uint32_t DIM_Y =1;
 
 #ifndef NDEBUG
     std::cerr << "RTree::BulkLoader:R+ with K=" << partition_size << " , sorting data.."<< std::endl;
 #endif
 
+    Tools::SmartPointer<ExternalSorter> ess = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
     Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(10000, 10000));
+
+    const uint32_t DIM_X =0;
+    const uint32_t DIM_Y =1;
     uint32_t dim = DIM_X; 
-    int i =0;
+
     while (stream.hasNext())
     {
-	i++;
 	Data* d = reinterpret_cast<Data*>(stream.getNext());
 	if (d == 0)
 	    throw Tools::IllegalArgumentException(
@@ -569,22 +573,20 @@ void BulkLoader::bulkLoadUsingRPLUS(
 	d->m_pData = 0;
 	delete d;
     }
+
     Region r = es->getUniverse();
-    
-    pTree->m_stats.m_u64Data = es->getTotalEntries();
 
 #ifndef NDEBUG
     std::cerr << "Spatial Universe: " << r << std::endl;
-    std::cerr << " |collection| = " << es->getTotalEntries() << ", i = " << i<< std::endl;
+    std::cerr << "|collection| = " << es->getTotalEntries() << std::endl;
+    std::cerr << "RTree::BulkLoader::R+ packing objects .." << std::endl;
 #endif
 
-    // create index levels.
-    uint32_t level = 0;
     std::vector<ExternalSorter::Record*> node;
-    std::vector<ExternalSorter::Record*> rnode;// for creating root node 
     float cost [] = {0.0, 0.0};
     int iteration = 0; 
-
+    id_type id = 0;
+    
     while (true)
     {
 	cost [0] = 0.0;
@@ -592,13 +594,13 @@ void BulkLoader::bulkLoadUsingRPLUS(
 	iteration++;
 
 	if (es->getTotalEntries() <= partition_size) {
-	    
+
 	    es->split(partition_size, dim, r,node);
 
 #ifndef NDEBUG
 	    // last partition
-	std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
-	std::cerr << "|collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
+	    std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
+	    std::cerr << "|collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
 #endif
 	    break; 
 	}
@@ -613,39 +615,35 @@ void BulkLoader::bulkLoadUsingRPLUS(
 	std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
 	std::cerr << "|collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
 #endif
-	
-	/*
-	Node* n = createNode(pTree, node, level);
-	node.clear();
-	pTree->writeNode(n);
-	rnode.push_back(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
-	delete n;
-	*/
-	node.clear();
-	std::cerr.flush();
+
+	ess->insert(new ExternalSorter::Record(r, id++, 0, 0, 0));
     } // end while 
-/*
-    if (! node.empty())
+
+    ess->insert(new ExternalSorter::Record(r, id++, 0, 0, 0));
+
+    // STR style bulk loading for upper level nodes.
+    pTree->m_stats.m_u64Data = ess->getTotalEntries();
+    uint32_t level = 0;
+    ess->sort();
+
+    while (true)
     {
-	Node* n = createNode(pTree, node, level);
-	pTree->writeNode(n);
-	rnode.push_back(new ExternalSorter::Record(n->m_nodeMBR, n->m_identifier, 0, 0, 0));
-	delete n;
+#ifndef NDEBUG
+	std::cerr << "RTree::BulkLoader::R+ Building level " << level << std::endl;
+#endif
+
+	pTree->m_stats.m_nodesInLevel.push_back(0);
+
+	Tools::SmartPointer<ExternalSorter> es2 = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
+	createLevel(pTree, ess, 0, bleaf, bindex, level++, es2, pageSize, numberOfPages);
+	ess = es2;
+
+	if (ess->getTotalEntries() == 1) break;
+	ess->sort();
     }
-
-    level++;
-
-    // create final root node 
-    Node* nr = createNode(pTree, rnode, level);
-    pTree->writeNode(nr);
-    pTree->m_rootID = nr->m_identifier;
-    delete nr;
-
 
     pTree->m_stats.m_u32TreeHeight = level;
     pTree->storeHeader();
-    */
-
 }
 
 
