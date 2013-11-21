@@ -550,9 +550,9 @@ void BulkLoader::bulkLoadUsingRPLUS(
     pTree->deleteNode(n.get());
 
 
-#ifndef NDEBUG
+//#ifndef NDEBUG
     std::cerr << "RTree::BulkLoader:R+ with K=" << partition_size << " , sorting data.."<< std::endl;
-#endif
+//#endif
 
     Tools::SmartPointer<ExternalSorter> ess = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(pageSize, numberOfPages));
     Tools::SmartPointer<ExternalSorter> es = Tools::SmartPointer<ExternalSorter>(new ExternalSorter(10000, 10000));
@@ -576,11 +576,11 @@ void BulkLoader::bulkLoadUsingRPLUS(
 
     Region r = es->getUniverse();
 
-#ifndef NDEBUG
+// #ifndef NDEBUG
     std::cerr << "Spatial Universe: " << r << std::endl;
     std::cerr << "|collection| = " << es->getTotalEntries() << std::endl;
     std::cerr << "RTree::BulkLoader::R+ packing objects .." << std::endl;
-#endif
+// #endif
 
     std::vector<ExternalSorter::Record*> node;
     float cost [] = {0.0, 0.0};
@@ -597,11 +597,11 @@ void BulkLoader::bulkLoadUsingRPLUS(
 
 	    es->split(partition_size, dim, r,node);
 
-#ifndef NDEBUG
+// #ifndef NDEBUG
 	    // last partition
 	    std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
 	    std::cerr << "|collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
-#endif
+// #endif
 	    break; 
 	}
 
@@ -611,10 +611,10 @@ void BulkLoader::bulkLoadUsingRPLUS(
 	dim = (cost[DIM_X] <= cost[DIM_Y] )? DIM_X : DIM_Y ;
 	es->split(partition_size, dim, r,node);
 
-#ifndef NDEBUG
+//#ifndef NDEBUG
 	std::cerr << "Iteration: " << iteration << "\tx-cost = " << cost [DIM_X] << "\ty-cost = " << cost [DIM_Y] << "\tRegion = " << r << std::endl;
 	std::cerr << "|collection| = " << es->getTotalEntries() << " , |partition| = " << node.size() << "." << std::endl;
-#endif
+//#endif
 
 	ess->insert(new ExternalSorter::Record(r, id++, 0, 0, 0));
     } // end while 
@@ -628,9 +628,9 @@ void BulkLoader::bulkLoadUsingRPLUS(
 
     while (true)
     {
-#ifndef NDEBUG
+// #ifndef NDEBUG
 	std::cerr << "RTree::BulkLoader::R+ Building level " << level << std::endl;
-#endif
+// #endif
 
 	pTree->m_stats.m_nodesInLevel.push_back(0);
 
